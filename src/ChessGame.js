@@ -6,12 +6,15 @@ const difficultyLevels = ['Beginner', 'Intermediate', 'Advanced', 'Grand Master'
 const ChessGame = () => {
   const [game, setGame] = useState(new Chess());
   const [selectedSquare, setSelectedSquare] = useState(null);
-  const [suggestedMove, setSuggestedMove] = useState('');
+  const [suggestedMove, setSuggestedMove] = useState(null);
   const [botDifficulty, setBotDifficulty] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
+  const [winProbability, setWinProbability] = useState({ white: 50, black: 50 });
+  const [pointDifference, setPointDifference] = useState(0);
 
   useEffect(() => {
     suggestMove();
+    calculateWinProbability();
   }, [game]);
 
   const makeMove = (from, to) => {
@@ -75,33 +78,74 @@ const ChessGame = () => {
   };
 
   const suggestMove = () => {
-    const moves = game.moves();
+    const moves = game.moves({ verbose: true });
     if (moves.length > 0) {
-      setSuggestedMove(moves[Math.floor(Math.random() * moves.length)]);
+      // Simple suggestion: prefer captures and checks
+      const suggestedMove = moves.reduce((best, current) => {
+        const score = (current.flags.includes('c') || current.flags.includes('e')) ? 2 : 
+                      (current.flags.includes('p') || current.flags.includes('k')) ? 1 : 0;
+        return score > best.score ? { move: current, score } : best;
+      }, { move: moves[0], score: -1 }).move;
+      setSuggestedMove(suggestedMove);
     }
+  };
+
+  const calculateWinProbability = () => {
+    const pieceValues = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+    let whiteScore = 0;
+    let blackScore = 0;
+    
+    game.board().forEach(row => {
+      row.forEach(piece => {
+        if (piece) {
+          if (piece.color === 'w') {
+            whiteScore += pieceValues[piece.type];
+          } else {
+            blackScore += pieceValues[piece.type];
+          }
+        }
+      });
+    });
+    
+    const totalScore = whiteScore + blackScore;
+    const whiteProbability = Math.round((whiteScore / totalScore) * 100);
+    setWinProbability({ white: whiteProbability, black: 100 - whiteProbability });
+    setPointDifference(whiteScore - blackScore);
   };
 
   const renderSquare = (i) => {
     const file = 'abcdefgh'[i % 8];
-    const rank = Math.floor((63 - i) / 8) + 1;
+    const rank = 8 - Math.floor(i / 8);
     const square = `${file}${rank}`;
     const piece = game.get(square);
     const isSelected = selectedSquare === square;
     const isLegal = selectedSquare && game.moves({ square: selectedSquare, verbose: true }).some(move => move.to === square);
+    const isSuggested = suggestedMove && (suggestedMove.from === square || suggestedMove.to === square);
 
     return (
       <div 
         key={square}
-        className={`aspect-square flex items-center justify-center cursor-pointer border border-gray-400
+        className={`aspect-square flex items-center justify-center cursor-pointer border border-gray-400 relative
                     ${(i + Math.floor(i / 8)) % 2 === 0 ? 'bg-gray-200' : 'bg-white'}
                     ${isSelected ? 'bg-yellow-200' : ''}
-                    ${isLegal ? 'bg-green-200' : ''}`}
+                    ${isLegal ? 'bg-green-200' : ''}
+                    ${isSuggested ? 'bg-blue-200' : ''}`}
         onClick={() => handleSquareClick(square)}
       >
         {piece && (
-          <span className={`text-5xl select-none ${piece.color === 'w' ? 'text-white' : 'text-black'} 
+          <span className={`text-4xl select-none ${piece.color === 'w' ? 'text-white' : 'text-black'} 
                             ${piece.color === 'w' ? 'drop-shadow-[0_1.2px_1.2px_rgba(0,0,0,0.8)]' : 'drop-shadow-[0_1.2px_1.2px_rgba(255,255,255,0.8)]'}`}>
             {getPieceSymbol(piece)}
+          </span>
+        )}
+        {i % 8 === 0 && (
+          <span className="absolute text-xs text-gray-500 left-0.5 top-0.5">
+            {rank}
+          </span>
+        )}
+        {i >= 56 && (
+          <span className="absolute text-xs text-gray-500 right-0.5 bottom-0.5">
+            {file}
           </span>
         )}
       </div>
@@ -122,7 +166,15 @@ const ChessGame = () => {
         {[...Array(64)].map((_, i) => renderSquare(i))}
       </div>
       <div className="text-lg font-semibold mb-2">
-        <p>Suggested move: {suggestedMove}</p>
+        <p>Suggested move: {suggestedMove ? `${suggestedMove.from} to ${suggestedMove.to}` : 'None'}</p>
+      </div>
+      <div className="mb-2 w-full max-w-2xl bg-gray-200 rounded-full h-5 dark:bg-gray-700">
+        <div className="bg-blue-600 h-5 rounded-full text-center text-xs text-white" style={{width: `${winProbability.white}%`}}>
+          White {winProbability.white}%
+        </div>
+      </div>
+      <div className="text-lg font-semibold mb-2">
+        Point difference: {pointDifference > 0 ? `White +${pointDifference}` : pointDifference < 0 ? `Black +${Math.abs(pointDifference)}` : 'Even'}
       </div>
       {errorMessage && (
         <div className="text-red-500 font-semibold mb-2">
